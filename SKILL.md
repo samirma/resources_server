@@ -5,14 +5,14 @@ metadata:
   clawdbot:
     emoji: "📦"
     requires:
-      bins: [curl, python3]
+      bins: [curl]
 ---
 
 # Resources Server
 
 Temporary file sharing on the local network. Upload content, get a short ID, and hand the
-user a link they can open in any browser on the network. The server lives in
-`~/resources_server` and listens on port 3100.
+user a link they can open in any browser on the network. Everything below needs only a
+POSIX shell and `curl`.
 
 ## When to Use
 
@@ -38,33 +38,41 @@ user a link they can open in any browser on the network. The server lives in
 | Storage | RAM only: everything is lost when the server restarts |
 | Access | Open by design: no authentication, anyone can overwrite any resource |
 
+## Find the Server
+
+Run this first. It sets `BASE` to the first address that answers: the one the user gave
+(put it in `RESOURCES_SERVER_URL`), the one cached by an earlier run, then the home server's
+known addresses.
+
+```bash
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/resources-server"
+BASE=""
+for url in "$RESOURCES_SERVER_URL" "$(cat "$CACHE/base_url" 2>/dev/null)" \
+           http://raspberry-server.local:3100 http://192.168.0.2:3100; do
+  [ -n "$url" ] && curl -fsS -m 3 "$url/api/health" >/dev/null 2>&1 && { BASE=$url; break; }
+done
+[ -n "$BASE" ] || { echo "Resource server not found"; exit 1; }
+mkdir -p "$CACHE" && printf '%s\n' "$BASE" > "$CACHE/base_url"
+```
+
+If nothing answers, ask the user for the server's address. If you are on the machine that
+runs it, start it instead (see Server Management) and run this again.
+
 ## Publish Content (main workflow)
 
 ```bash
-cd ~/resources_server
-PORT=3100
-
-# 1. Make sure the server is up (start it and wait if not)
-if ! curl -fsS "http://localhost:$PORT/api/health" >/dev/null 2>&1; then
-  ./init.sh start
-  for i in $(seq 30); do curl -fsS "http://localhost:$PORT/api/health" >/dev/null 2>&1 && break; sleep 1; done
-fi
-
-# 2. Upload, and fail loudly on any error
 RESP=$(curl -sS -w '\n%{http_code}' -X POST \
-  -F "file=@/path/to/report.html" -F "format=html" \
-  "http://localhost:$PORT/api/upload")
+  -F "file=@/path/to/report.html" -F "format=html" "$BASE/api/upload")
 CODE=$(printf '%s' "$RESP" | tail -n1); BODY=$(printf '%s' "$RESP" | sed '$d')
 [ "$CODE" = 201 ] || { echo "Upload failed ($CODE): $BODY"; exit 1; }
-ID=$(printf '%s' "$BODY" | python3 -c 'import sys, json; print(json.load(sys.stdin)["id"])')
-
-# 3. Build a link that works from other machines (not localhost)
-IP=$(hostname -I | awk '{print $1}')
-echo "http://$IP:$PORT/api/resource/$ID"
+ID=$(printf '%s' "$BODY" | sed -n 's/.*"id": *"\([^"]*\)".*/\1/p')
+LINK=$(printf '%s' "$BODY" | sed -n 's/.*"link": *"\([^"]*\)".*/\1/p')
+echo "$LINK"
 ```
 
-4. Give the user the network link and say it expires in 24 hours.
-5. **Remember the ID.** If the user asks for changes, replace the content under the same ID
+1. Give the user `LINK` and say it expires in 24 hours. It uses the address you called,
+   so it works for everyone on the network.
+2. **Remember the ID.** If the user asks for changes, replace the content under the same ID
    so their link keeps working. Don't upload a new copy.
 
 ### Generated content without a file
@@ -73,7 +81,7 @@ Pipe it in and give it a filename. The filename's extension helps browsers.
 
 ```bash
 printf '%s' "$HTML" | curl -sS -X POST -F "file=@-;filename=report.html" -F "format=html" \
-  http://localhost:3100/api/upload
+  "$BASE/api/upload"
 ```
 
 ### Choosing `format`
@@ -86,9 +94,6 @@ printf '%s' "$HTML" | curl -sS -X POST -F "file=@-;filename=report.html" -F "for
 | PDF | `pdf` | PDF document |
 | Anything else (images, archives) | omit it | The type curl sends, e.g. `image/png` |
 
-`format` is optional and takes priority over the type curl sends. Any other value is
-rejected with `400`.
-
 ### Writing HTML that works here
 
 Pages are served inside a browser sandbox: scripts run, but the page gets an isolated origin.
@@ -100,12 +105,10 @@ Pages are served inside a browser sandbox: scripts run, but the page gets an iso
 
 ## Update Content (same link)
 
-Replacing restarts the 24-hour lifetime. It works only while the resource is live: after
-expiry you get `404`, so upload again and give the user the new link.
+Replacing restarts the 24-hour lifetime. It works only while the resource is live.
 
 ```bash
-curl -sS -X PUT -F "file=@/path/to/report.html" -F "format=html" \
-  http://localhost:3100/api/resource/{id}
+curl -sS -X PUT -F "file=@/path/to/report.html" -F "format=html" "$BASE/api/resource/{id}"
 ```
 
 Open access means anyone can replace any resource, including ones you uploaded. If content
@@ -114,63 +117,36 @@ looks wrong, someone may have replaced it.
 ## Browse and Check
 
 ```bash
-curl -sS http://localhost:3100/api/resources      # JSON: all live resources, with expiry times
-curl -sS http://localhost:3100/api/health         # {"status": "healthy", "resources_count": N, "uptime_seconds": S}
-curl -sS http://localhost:3100/api/resource/{id}  # Download a resource's content
+curl -sS "$BASE/api/resources"      # All live resources, with expiry times
+curl -sS "$BASE/api/health"         # Is it up, and how many resources it holds
+curl -sS "$BASE/api/resource/{id}"  # A resource's content
 ```
 
-People can browse everything at `http://<IP>:3100/`, which shows the list as a web page.
+People can browse everything at `$BASE/`, which shows the list as a web page.
 
 ## Full API Description
 
-Every endpoint, parameter, response, and limit is described by the OpenAPI document:
+The OpenAPI document is the authoritative description of every endpoint, parameter,
+response, error, and limit. It is generated from the server's code, so it is always current.
+Read it for any detail this skill doesn't cover:
 
 ```bash
-curl -sS http://localhost:3100/api/openapi.json
+curl -sS "$BASE/api/openapi.json"
 ```
 
-It is generated from the server's code, so it is always current. Read it when you need a
-detail this guide doesn't cover. Older addresses without `/api` (from links shared earlier)
-still work, but always use the `/api` addresses.
+## When a Call Fails
 
-## Responses
-
-Upload (`201`) and replace (`200`) both return:
-
-```json
-{
-  "id": "a1b2c3d4",
-  "filename": "report.html",
-  "content_type": "text/html",
-  "size": 15,
-  "created_at": "2026-10-06T12:00:00+00:00",
-  "expires_at": "2026-10-07T12:00:00+00:00",
-  "url": "/api/resource/a1b2c3d4",
-  "link": "http://localhost:3100/api/resource/a1b2c3d4"
-}
-```
-
-- `link` uses the host you called. With `localhost` it only works on this machine, so build
-  the network link yourself (step 3 above).
-- Times are UTC.
-- `filename` may differ from what you sent. Paths and control characters are removed, and
-  names are cut to 255 characters.
-
-## Errors
-
-| Status | Meaning | What to do |
-|--------|---------|------------|
-| `400` | No file, empty filename, or unknown `format` | Fix the request |
-| `404` | Resource not found or expired | Upload again and share the new link |
-| `413` | File larger than 10 MB | Shrink or split it, or tell the user it can't be shared this way |
-| No response | Server not running | `./init.sh start`, then retry |
-
-Error bodies are JSON (`{"error": "..."}`), except uploads above 40 MB, which are refused
-with a plain-text `413` before they are read. Check the status code, not the body.
+| Result | What to do |
+|--------|------------|
+| `400` | Fix the request; the error message says what is wrong |
+| `404` | The resource expired or never existed: upload again and share the new link |
+| `413` | Over 10 MB: shrink or split it, or tell the user it can't be shared this way |
+| No answer | Run Find the Server again; if it is still down, see Server Management |
 
 ## Server Management
 
-Run from `~/resources_server`.
+Only on the machine that runs the server, from the project checkout (the folder with
+`init.sh`).
 
 | Command | Action | Keeps resources? |
 |---------|--------|------------------|
