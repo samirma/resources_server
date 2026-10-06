@@ -1,0 +1,9 @@
+[run]
+source = main, openapi
+branch = True
+
+[report]
+fail_under = 100
+show_missing = True
+exclude_also =
+    if __name__ == .__main__.:

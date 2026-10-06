@@ -52,30 +52,22 @@ web pages, documents, data files, and text — not for long-term storage.
 
 ### 6. Service management
 - An operator can start, stop, and restart the service, check whether it is running, and
-  follow its activity log.
+  follow its activity log, with `init.sh`.
 - A full reset returns the service to a clean state. Like any restart, it discards all
   stored resources.
-- The operator can run the automated test suite with a single command.
+- The operator can run the automated test suite with a single command, `./init.sh test`.
 
-### 7. Agent skill guide
-- The project includes a skill guide that teaches AI agents how to use the service on
-  their own, without human help.
-- The guide covers everything an agent needs:
-  - starting the service and confirming it is running;
-  - uploading a file or generated content, including how to say what kind of content it is;
-  - building a shareable link that works for other people on the network, not only on
-    the machine running the service;
-  - replacing a resource and browsing all resources;
-  - managing the service (stop, restart, status, logs) and troubleshooting common problems,
-    such as the service not running or its address already being in use;
-  - where to find the full API description (the OpenAPI document, see [API](#api)).
-- The guide uses the `/api/` addresses only.
-- The guide states the same rules as this document: the 10 MB file limit, the 24-hour
-  lifetime, temporary storage, and open access where anyone can overwrite any resource.
-- The guide only describes actions the service actually supports. In particular, it must
-  not offer deleting a resource.
-- The guide must stay in step with the service: whenever a feature, rule, or limit
-  changes, the guide is updated at the same time.
+### 7. Agent skill
+- The project includes an agent skill, `SKILL.md`, that teaches AI agents how to use the
+  service on their own. What it must do is specified in [agent_skill.md](agent_skill.md).
+
+## Entry points
+- `main.py` runs the service (Waitress on port 3100 by default); it is what the container
+  starts.
+- `init.sh` is the operator's command for everything in [Service management](#6-service-management):
+  `start`, `stop`, `restart`, `down`, `rebuild`, `status`, `logs`, and `test`.
+- `SKILL.md` is the agent skill, see [agent_skill.md](agent_skill.md).
+- The API is described by the OpenAPI document, see [API](#api).
 
 ## API
 
@@ -90,7 +82,7 @@ open access.
 
 The original addresses without the `/api/` prefix (`/upload`, `/resource/<id>`, `/resources`,
 `/health`) remain as aliases that behave exactly like their `/api/` counterparts, so links
-already shared and existing clients keep working. New clients and the agent skill guide use
+already shared and existing clients keep working. New clients and the agent skill use
 the `/api/` addresses. The service's main address still takes visitors to the resource list.
 
 ## Rules and Limits
@@ -114,7 +106,10 @@ the `/api/` addresses. The service's main address still takes visitors to the re
 - Because of this, the service is meant for trusted networks and non-sensitive content.
 
 ## Quality and Test Coverage
-- The project must be covered comprehensively by automated tests.
+- Unit tests cover 100% of lines and branches of the service code. The suite fails below
+  that (`fail_under = 100` in `.coveragerc`), and the container build runs it, so a build
+  with failing or uncovered code fails.
+- Unit tests run offline: they use only the in-process app and a server on `127.0.0.1`.
 - Every feature in this document must be tested, including both its successful outcomes and
   its rejections (missing file, empty file name, unknown or expired resource).
 - Every rule and limit must be tested, including:
@@ -123,9 +118,8 @@ the `/api/` addresses. The service's main address still takes visitors to the re
   - open access: anyone can upload, view, list, and overwrite any resource.
 - The resource list must be tested in both forms: the visual page for people and the
   structured form for automated tools, including when the list is empty.
-- The agent skill guide must be checked automatically against this document, so it cannot
-  drift: it must state the current limits and lifetime, describe every supported action,
-  and offer no unsupported ones.
+- The agent skill must be checked automatically as [agent_skill.md](agent_skill.md)
+  requires, so it cannot drift from the service.
 - The OpenAPI document must be checked automatically: it is a valid OpenAPI 3.1 document, it
   describes exactly the service's `/api/` operations, its schemas match the responses the
   service actually returns, and it states the current limits.
@@ -137,7 +131,7 @@ the `/api/` addresses. The service's main address still takes visitors to the re
 - **People** sharing a file with others on the same network through a short link.
 - **Automated agents and scripts** that produce content (for example, generated reports or
   web pages) and need a quick place to publish it for a human to view. AI agents learn
-  how to do this from the agent skill guide.
+  how to do this from the agent skill.
 - **Operators** who run the service on their own machine and keep it available.
 
 ## Out of Scope

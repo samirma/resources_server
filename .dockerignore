@@ -6,9 +6,5 @@ __pycache__
 *.pyc
 .pytest_cache
 .coverage
-tests
 *.log
-*.md
-pytest.ini
-requirements-dev.txt
-init.sh
+README.md
