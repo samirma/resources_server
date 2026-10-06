@@ -5,12 +5,14 @@ set -e
 
 cd "$(dirname "$0")"
 
+PORT="${RESOURCE_SERVER_PORT:-3100}"
+
 case "${1:-start}" in
   start)
     echo "🚀 Starting Resource Server..."
     docker compose up -d
-    echo "✅ Resource Server started on port 3100"
-    echo "   Health: http://localhost:3100/health"
+    echo "✅ Resource Server started on port $PORT"
+    echo "   Health: http://localhost:$PORT/health"
     ;;
   stop)
     echo "🛑 Stopping Resource Server..."
@@ -38,8 +40,16 @@ case "${1:-start}" in
   status)
     docker compose ps
     ;;
+  test)
+    echo "🧪 Running tests..."
+    if [ ! -x .venv/bin/python ]; then
+      python3 -m venv .venv
+      .venv/bin/pip install -q -r requirements-dev.txt
+    fi
+    .venv/bin/python -m pytest --cov=main --cov-report=term-missing
+    ;;
   *)
-    echo "Usage: $0 {start|stop|down|restart|rebuild|logs|status}"
+    echo "Usage: $0 {start|stop|down|restart|rebuild|logs|status|test}"
     exit 1
     ;;
 esac

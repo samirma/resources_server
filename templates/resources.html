@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resource Server - Available Resources</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #eee;
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 30px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        h1 {
+            color: #00ff88;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        .subtitle { color: #888; font-size: 1.1em; }
+        .stats {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin-top: 20px;
+        }
+        .stat { text-align: center; }
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #f7931a;
+        }
+        .stat-label {
+            color: #888;
+            font-size: 0.9em;
+            text-transform: uppercase;
+        }
+        .table-wrap { overflow-x: auto; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        th {
+            background: rgba(0,255,136,0.2);
+            color: #00ff88;
+            padding: 15px;
+            text-align: left;
+            font-weight: bold;
+            text-transform: uppercase;
+            font-size: 0.85em;
+            letter-spacing: 1px;
+        }
+        td {
+            padding: 15px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            color: #ccc;
+        }
+        tr:hover { background: rgba(255,255,255,0.05); }
+        tr:last-child td { border-bottom: none; }
+        .resource-id {
+            font-family: monospace;
+            color: #f7931a;
+            font-weight: bold;
+        }
+        .filename {
+            color: #fff;
+            font-weight: 500;
+            word-break: break-all;
+        }
+        .size {
+            font-family: monospace;
+            color: #00ff88;
+        }
+        .datetime {
+            font-family: monospace;
+            color: #ccc;
+            font-size: 0.9em;
+        }
+        .expires {
+            font-family: monospace;
+            color: #ccc;
+            font-size: 0.9em;
+        }
+        .expires-soon {
+            font-family: monospace;
+            color: #ff4757;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+        .view-link {
+            display: inline-block;
+            padding: 8px 16px;
+            background: rgba(0,255,136,0.2);
+            color: #00ff88;
+            text-decoration: none;
+            border-radius: 5px;
+            font-size: 0.85em;
+            transition: all 0.3s;
+        }
+        .view-link:hover { background: rgba(0,255,136,0.3); }
+        .empty-state {
+            text-align: center;
+            padding: 60px;
+            color: #888;
+        }
+        .empty-state h2 {
+            color: #666;
+            margin-bottom: 10px;
+        }
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            padding: 20px;
+            color: #666;
+            font-size: 0.9em;
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75em;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .badge-html { background: rgba(227, 79, 38, 0.3); color: #e34f26; }
+        .badge-json { background: rgba(168, 196, 30, 0.3); color: #a8c41e; }
+        .badge-text { background: rgba(200, 200, 200, 0.3); color: #ccc; }
+        .badge-pdf { background: rgba(222, 82, 70, 0.3); color: #de5246; }
+        .badge-other { background: rgba(100, 100, 100, 0.3); color: #888; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📦 Resource Server</h1>
+            <div class="subtitle">In-Memory Storage with Auto-Cleanup</div>
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-value">{{ count }}</div>
+                    <div class="stat-label">Active Resources</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value">{{ ttl_label }}</div>
+                    <div class="stat-label">TTL</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value">{{ max_size_label }}</div>
+                    <div class="stat-label">Max File Size</div>
+                </div>
+            </div>
+        </header>
+        <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Filename</th>
+                    <th>Type</th>
+                    <th>Size</th>
+                    <th>Created</th>
+                    <th>Expires</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in resources %}
+                <tr>
+                    <td><span class="resource-id">{{ r.id }}</span></td>
+                    <td><span class="filename">{{ r.filename }}</span></td>
+                    <td><span class="badge badge-{{ r.badge_class }}">{{ r.badge_label }}</span></td>
+                    <td><span class="size">{{ r.size }}</span></td>
+                    <td><span class="datetime">{{ r.created_at }}</span></td>
+                    <td><span class="{{ 'expires-soon' if r.expiring_soon else 'expires' }}">{{ r.expires_at }}</span></td>
+                    <td><a href="{{ r.url }}" class="view-link">View</a></td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="7" class="empty-state">
+                        <h2>No resources available</h2>
+                        <p>Upload files using POST /upload</p>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        <footer>
+            <p>Resource Server | In-Memory Storage | Auto-cleanup after {{ ttl_label }}</p>
+        </footer>
+    </div>
+</body>
+</html>
