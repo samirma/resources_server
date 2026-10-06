@@ -5,7 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY main.py .
+COPY main.py openapi.py ./
 COPY templates/ templates/
 
 RUN useradd --system --no-create-home appuser

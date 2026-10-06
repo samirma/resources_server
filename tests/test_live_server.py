@@ -30,7 +30,7 @@ def post_file(port, size, filename="f.bin"):
     body = head + b"x" * size + f"\r\n--{boundary}--\r\n".encode()
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
     try:
-        conn.request("POST", "/upload", body=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+        conn.request("POST", "/api/upload", body=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
         res = conn.getresponse()
         return res.status, res.getheader("Content-Type", ""), res.read()
     except (BrokenPipeError, ConnectionResetError):
@@ -58,10 +58,25 @@ def test_huge_upload_refused_by_server(server):
     assert status == 413
 
 
-def test_health(server):
-    conn = http.client.HTTPConnection("127.0.0.1", server, timeout=5)
-    conn.request("GET", "/health")
-    res = conn.getresponse()
-    assert res.status == 200
-    assert json.loads(res.read())["status"] == "healthy"
-    conn.close()
+def get_json(port, path):
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    try:
+        conn.request("GET", path)
+        res = conn.getresponse()
+        return res.status, json.loads(res.read())
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("path", ["/api/health", "/health"])
+def test_health(server, path):
+    status, body = get_json(server, path)
+    assert status == 200
+    assert body["status"] == "healthy"
+
+
+def test_openapi_document(server):
+    status, doc = get_json(server, "/api/openapi.json")
+    assert status == 200
+    assert doc["openapi"] == "3.1.0"
+    assert doc["servers"] == [{"url": f"http://127.0.0.1:{server}"}]

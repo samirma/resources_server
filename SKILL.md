@@ -45,22 +45,22 @@ cd ~/resources_server
 PORT=3100
 
 # 1. Make sure the server is up (start it and wait if not)
-if ! curl -fsS "http://localhost:$PORT/health" >/dev/null 2>&1; then
+if ! curl -fsS "http://localhost:$PORT/api/health" >/dev/null 2>&1; then
   ./init.sh start
-  for i in $(seq 30); do curl -fsS "http://localhost:$PORT/health" >/dev/null 2>&1 && break; sleep 1; done
+  for i in $(seq 30); do curl -fsS "http://localhost:$PORT/api/health" >/dev/null 2>&1 && break; sleep 1; done
 fi
 
 # 2. Upload, and fail loudly on any error
 RESP=$(curl -sS -w '\n%{http_code}' -X POST \
   -F "file=@/path/to/report.html" -F "format=html" \
-  "http://localhost:$PORT/upload")
+  "http://localhost:$PORT/api/upload")
 CODE=$(printf '%s' "$RESP" | tail -n1); BODY=$(printf '%s' "$RESP" | sed '$d')
 [ "$CODE" = 201 ] || { echo "Upload failed ($CODE): $BODY"; exit 1; }
 ID=$(printf '%s' "$BODY" | python3 -c 'import sys, json; print(json.load(sys.stdin)["id"])')
 
 # 3. Build a link that works from other machines (not localhost)
 IP=$(hostname -I | awk '{print $1}')
-echo "http://$IP:$PORT/resource/$ID"
+echo "http://$IP:$PORT/api/resource/$ID"
 ```
 
 4. Give the user the network link and say it expires in 24 hours.
@@ -73,7 +73,7 @@ Pipe it in and give it a filename. The filename's extension helps browsers.
 
 ```bash
 printf '%s' "$HTML" | curl -sS -X POST -F "file=@-;filename=report.html" -F "format=html" \
-  http://localhost:3100/upload
+  http://localhost:3100/api/upload
 ```
 
 ### Choosing `format`
@@ -96,7 +96,7 @@ Pages are served inside a browser sandbox: scripts run, but the page gets an iso
   public CDNs.
 - Don't rely on `localStorage`, `sessionStorage`, or cookies. They are unavailable in the
   sandbox.
-- Don't link to other resources by filename. Link to their full `/resource/{id}` URL.
+- Don't link to other resources by filename. Link to their full `/api/resource/{id}` URL.
 
 ## Update Content (same link)
 
@@ -105,7 +105,7 @@ expiry you get `404`, so upload again and give the user the new link.
 
 ```bash
 curl -sS -X PUT -F "file=@/path/to/report.html" -F "format=html" \
-  http://localhost:3100/resource/{id}
+  http://localhost:3100/api/resource/{id}
 ```
 
 Open access means anyone can replace any resource, including ones you uploaded. If content
@@ -114,12 +114,24 @@ looks wrong, someone may have replaced it.
 ## Browse and Check
 
 ```bash
-curl -sS http://localhost:3100/resources      # JSON: all live resources, with expiry times
-curl -sS http://localhost:3100/health         # {"status": "healthy", "resources_count": N, "uptime_seconds": S}
-curl -sS http://localhost:3100/resource/{id}  # Download a resource's content
+curl -sS http://localhost:3100/api/resources      # JSON: all live resources, with expiry times
+curl -sS http://localhost:3100/api/health         # {"status": "healthy", "resources_count": N, "uptime_seconds": S}
+curl -sS http://localhost:3100/api/resource/{id}  # Download a resource's content
 ```
 
 People can browse everything at `http://<IP>:3100/`, which shows the list as a web page.
+
+## Full API Description
+
+Every endpoint, parameter, response, and limit is described by the OpenAPI document:
+
+```bash
+curl -sS http://localhost:3100/api/openapi.json
+```
+
+It is generated from the server's code, so it is always current. Read it when you need a
+detail this guide doesn't cover. Older addresses without `/api` (from links shared earlier)
+still work, but always use the `/api` addresses.
 
 ## Responses
 
@@ -133,8 +145,8 @@ Upload (`201`) and replace (`200`) both return:
   "size": 15,
   "created_at": "2026-10-06T12:00:00+00:00",
   "expires_at": "2026-10-07T12:00:00+00:00",
-  "url": "/resource/a1b2c3d4",
-  "link": "http://localhost:3100/resource/a1b2c3d4"
+  "url": "/api/resource/a1b2c3d4",
+  "link": "http://localhost:3100/api/resource/a1b2c3d4"
 }
 ```
 

@@ -10,7 +10,7 @@ services:
     restart: unless-stopped
     healthcheck:
       # The slim image has no curl, so probe with Python's standard library
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3100/health', timeout=5)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3100/api/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -7,11 +7,11 @@ server through [SKILL.md](SKILL.md).
 ## Features
 
 - **GET /** - Redirects to the resource list
-- **POST /upload** - Upload a file (max 10 MB) and get a unique ID
-- **GET /resource/<id>** - Retrieve a resource
-- **PUT /resource/<id>** - Replace an existing resource (restarts its 24h lifetime)
-- **GET /resources** - List all resources (web page in browsers, JSON otherwise)
-- **GET /health** - Health check
+- **POST /api/upload** - Upload a file (max 10 MB) and get a unique ID
+- **GET /api/resource/<id>** - Retrieve a resource
+- **PUT /api/resource/<id>** - Replace an existing resource (restarts its 24h lifetime)
+- **GET /api/resources** - List all resources (web page in browsers, JSON otherwise)
+- **GET /api/health** - Health check
 - **Auto-cleanup** - Resources expire after 24 hours
 
 ## Rules
@@ -28,12 +28,24 @@ non-sensitive content. Resources cannot be deleted; they expire on their own.
 
 ## API Endpoints
 
-### POST /upload
+All endpoints are under `/api/`. The full description is the OpenAPI 3.1 document at
+`/api/openapi.json`, generated from the operation list in `openapi.py` (the same list that
+registers the routes), so it always matches the server:
+
+```bash
+curl http://localhost:3100/api/openapi.json
+```
+
+The original addresses without `/api` (`/upload`, `/resource/<id>`, `/resources`, `/health`)
+still work as aliases, so links shared before the change keep working. Use `/api/` in new
+clients.
+
+### POST /api/upload
 Upload a file and receive a unique resource ID.
 
 **Request:**
 ```bash
-curl -X POST -F "file=@document.pdf" -F "format=pdf" http://localhost:3100/upload
+curl -X POST -F "file=@document.pdf" -F "format=pdf" http://localhost:3100/api/upload
 ```
 
 `format` is optional: `html`, `json`, `text` or `pdf`. When given, it sets the content type;
@@ -48,36 +60,36 @@ otherwise the type sent by the client is used. Other values are rejected.
   "size": 1024567,
   "created_at": "2026-10-05T12:00:00+00:00",
   "expires_at": "2026-10-06T12:00:00+00:00",
-  "url": "/resource/a1b2c3d4",
-  "link": "http://localhost:3100/resource/a1b2c3d4"
+  "url": "/api/resource/a1b2c3d4",
+  "link": "http://localhost:3100/api/resource/a1b2c3d4"
 }
 ```
 
-### GET /resource/<id>
+### GET /api/resource/<id>
 Retrieve a resource by ID.
 
 ```bash
-curl http://localhost:3100/resource/a1b2c3d4
+curl http://localhost:3100/api/resource/a1b2c3d4
 ```
 
 Returns the file with its content type, served inline with its original filename.
 Responses are sandboxed (`Content-Security-Policy: sandbox ...`) so uploaded web pages
 render and run scripts without acting as the server's own origin.
 
-### PUT /resource/<id>
+### PUT /api/resource/<id>
 Replace an existing resource. The ID stays the same and the lifetime restarts.
-Takes the same fields as `/upload`. Returns `404` if the resource is unknown or expired.
+Takes the same fields as `/api/upload`. Returns `404` if the resource is unknown or expired.
 
 ```bash
-curl -X PUT -F "file=@updated.pdf" -F "format=pdf" http://localhost:3100/resource/a1b2c3d4
+curl -X PUT -F "file=@updated.pdf" -F "format=pdf" http://localhost:3100/api/resource/a1b2c3d4
 ```
 
-### GET /resources
+### GET /api/resources
 List all live resources. Browsers (which send `Accept: text/html`) get a web page; other
 clients get JSON.
 
 ```bash
-curl http://localhost:3100/resources
+curl http://localhost:3100/api/resources
 ```
 
 ```json
@@ -90,8 +102,8 @@ curl http://localhost:3100/resources
       "size": 1024567,
       "created_at": "2026-10-05T12:00:00+00:00",
       "expires_at": "2026-10-06T12:00:00+00:00",
-      "url": "/resource/a1b2c3d4",
-      "link": "http://localhost:3100/resource/a1b2c3d4",
+      "url": "/api/resource/a1b2c3d4",
+      "link": "http://localhost:3100/api/resource/a1b2c3d4",
       "ttl_seconds": 86400,
       "time_remaining_seconds": 82000
     }
@@ -102,10 +114,10 @@ curl http://localhost:3100/resources
 }
 ```
 
-### GET /health
+### GET /api/health
 
 ```bash
-curl http://localhost:3100/health
+curl http://localhost:3100/api/health
 ```
 
 ```json
@@ -163,18 +175,23 @@ The container runs as a non-root user and has a built-in health check.
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest --cov=main
+.venv/bin/python -m pytest --cov=main --cov=openapi
 ```
 
 `./init.sh test` does the same, creating `.venv` if needed. Tests are organized by the
-sections of `high_level_spec.md`, and `tests/test_skill_doc.py` checks that `SKILL.md`
-stays in step with the service.
+sections of `high_level_spec.md`. `tests/test_skill_doc.py` checks that `SKILL.md` stays in
+step with the service, and `tests/test_openapi.py` validates the OpenAPI document and checks
+it against the real routes and responses.
+
+To add or change an endpoint, edit its entry in `OPERATIONS` (`openapi.py`) and its view in
+`create_app` (`main.py`); the route and the document follow from that one entry.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `main.py` | Flask app: store, endpoints, cleanup thread, entry point |
+| `main.py` | Flask app: store, endpoint views, cleanup thread, entry point |
+| `openapi.py` | Operation list (routes) and the generated OpenAPI document |
 | `templates/resources.html` | Resource list web page |
 | `tests/` | Test suite |
 | `high_level_spec.md` | What the service must do |

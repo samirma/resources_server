@@ -8,6 +8,7 @@ import pytest
 
 import main
 from main import MAX_FILE_SIZE, RESOURCE_TTL, ResourceStore, create_app
+from openapi import API_PREFIX, OPERATIONS
 
 
 class FakeClock:
@@ -42,22 +43,22 @@ def upload(client, data=b"hello", filename="hello.txt", fmt=None, content_type=N
     form = {"file": (io.BytesIO(data), filename, content_type) if content_type else (io.BytesIO(data), filename)}
     if fmt is not None:
         form["format"] = fmt
-    return client.post("/upload", data=form, content_type="multipart/form-data")
+    return client.post("/api/upload", data=form, content_type="multipart/form-data")
 
 
 def replace(client, resource_id, data=b"updated", filename="updated.txt", fmt=None):
     form = {"file": (io.BytesIO(data), filename)}
     if fmt is not None:
         form["format"] = fmt
-    return client.put(f"/resource/{resource_id}", data=form, content_type="multipart/form-data")
+    return client.put(f"/api/resource/{resource_id}", data=form, content_type="multipart/form-data")
 
 
 def list_json(client):
-    return client.get("/resources", headers={"Accept": "application/json"}).get_json()
+    return client.get("/api/resources", headers={"Accept": "application/json"}).get_json()
 
 
 def list_html(client):
-    return client.get("/resources", headers={"Accept": "text/html,application/xhtml+xml"}).get_data(as_text=True)
+    return client.get("/api/resources", headers={"Accept": "text/html,application/xhtml+xml"}).get_data(as_text=True)
 
 
 # --- 1. Upload a resource ---------------------------------------------------
@@ -73,8 +74,8 @@ class TestUpload:
         assert body["size"] == 5
         assert body["created_at"].endswith("+00:00")
         assert body["expires_at"].endswith("+00:00")
-        assert body["url"] == f"/resource/{body['id']}"
-        assert body["link"] == f"http://localhost/resource/{body['id']}"
+        assert body["url"] == f"/api/resource/{body['id']}"
+        assert body["link"] == f"http://localhost/api/resource/{body['id']}"
 
     @pytest.mark.parametrize("fmt,expected", [
         ("html", "text/html"),
@@ -106,7 +107,7 @@ class TestUpload:
         assert store.count() == 0
 
     def test_missing_file_rejected(self, client):
-        res = client.post("/upload", data={"format": "text"}, content_type="multipart/form-data")
+        res = client.post("/api/upload", data={"format": "text"}, content_type="multipart/form-data")
         assert res.status_code == 400
         assert res.get_json()["error"] == "No file provided"
 
@@ -126,7 +127,7 @@ class TestUpload:
         monkeypatch.setattr(main.secrets, "token_hex", lambda n: next(tokens) if n == 4 else real_token_hex(n))
         second = upload(client).get_json()["id"]
         assert second == "abcdef12"
-        assert client.get(f"/resource/{first}").data == b"hello"
+        assert client.get(f"/api/resource/{first}").data == b"hello"
 
 
 # --- 2. View a resource -----------------------------------------------------
@@ -134,7 +135,7 @@ class TestUpload:
 class TestView:
     def test_returns_content_and_type(self, client):
         rid = upload(client, b"<h1>Hi</h1>", "page.html", fmt="html").get_json()["id"]
-        res = client.get(f"/resource/{rid}")
+        res = client.get(f"/api/resource/{rid}")
         assert res.status_code == 200
         assert res.data == b"<h1>Hi</h1>"
         assert res.mimetype == "text/html"
@@ -145,11 +146,11 @@ class TestView:
     def test_binary_content_round_trips(self, client):
         data = bytes(range(256)) * 10
         rid = upload(client, data, "blob.bin").get_json()["id"]
-        assert client.get(f"/resource/{rid}").data == data
+        assert client.get(f"/api/resource/{rid}").data == data
 
     def test_offers_original_filename_inline(self, client):
         rid = upload(client, filename="report.pdf", fmt="pdf").get_json()["id"]
-        disposition = client.get(f"/resource/{rid}").headers["Content-Disposition"]
+        disposition = client.get(f"/api/resource/{rid}").headers["Content-Disposition"]
         assert disposition.startswith("inline")
         assert "report.pdf" in disposition
 
@@ -160,7 +161,7 @@ class TestView:
     def test_unusual_filenames_are_safely_encoded(self, client, store, filename, expected):
         # Stored directly: the test client cannot send a quote in a multipart filename
         rid = store.add(b"x", filename, "text/plain")["id"]
-        res = client.get(f"/resource/{rid}")
+        res = client.get(f"/api/resource/{rid}")
         assert res.status_code == 200
         assert expected in res.headers["Content-Disposition"]
 
@@ -172,7 +173,7 @@ class TestView:
     def test_filenames_are_cleaned_on_upload(self, client, sent, stored):
         body = upload(client, filename=sent).get_json()
         assert body["filename"] == stored
-        assert client.get(f"/resource/{body['id']}").status_code == 200
+        assert client.get(f"/api/resource/{body['id']}").status_code == 200
 
     def test_filename_with_only_control_characters_rejected(self, client):
         assert upload(client, filename="\t\x7f").status_code == 400
@@ -184,7 +185,7 @@ class TestView:
         body = upload(client, filename="n" * 5000 + ".pdf").get_json()
         assert len(body["filename"]) == main.MAX_FILENAME_LENGTH
         assert body["filename"].endswith(".pdf")
-        disposition = client.get(f"/resource/{body['id']}").headers["Content-Disposition"]
+        disposition = client.get(f"/api/resource/{body['id']}").headers["Content-Disposition"]
         assert len(disposition) < 300
 
     def test_long_filename_with_long_extension_capped(self):
@@ -200,7 +201,7 @@ class TestView:
 
     def test_served_with_safety_headers(self, client):
         rid = upload(client, fmt="html").get_json()["id"]
-        res = client.get(f"/resource/{rid}")
+        res = client.get(f"/api/resource/{rid}")
         assert res.headers["X-Content-Type-Options"] == "nosniff"
         assert res.headers["Content-Security-Policy"].startswith("sandbox")
         assert "allow-scripts" in res.headers["Content-Security-Policy"]
@@ -208,28 +209,28 @@ class TestView:
 
     def test_cached_copy_revalidates(self, client):
         rid = upload(client).get_json()["id"]
-        etag = client.get(f"/resource/{rid}").headers["ETag"]
-        res = client.get(f"/resource/{rid}", headers={"If-None-Match": etag})
+        etag = client.get(f"/api/resource/{rid}").headers["ETag"]
+        res = client.get(f"/api/resource/{rid}", headers={"If-None-Match": etag})
         assert res.status_code == 304
 
     def test_replacement_is_never_served_as_cached(self, client):
         # The fake clock does not move, so this is a replacement within the same instant
         rid = upload(client, b"v1").get_json()["id"]
-        first = client.get(f"/resource/{rid}")
+        first = client.get(f"/api/resource/{rid}")
         replace(client, rid, b"v2")
-        res = client.get(f"/resource/{rid}", headers={"If-None-Match": first.headers["ETag"]})
+        res = client.get(f"/api/resource/{rid}", headers={"If-None-Match": first.headers["ETag"]})
         assert res.status_code == 200
         assert res.data == b"v2"
         assert res.headers["ETag"] != first.headers["ETag"]
 
     def test_no_date_based_caching(self, client):
         rid = upload(client).get_json()["id"]
-        res = client.get(f"/resource/{rid}")
+        res = client.get(f"/api/resource/{rid}")
         assert "Last-Modified" not in res.headers
         assert "no-cache" in res.headers["Cache-Control"] or "max-age=0" in res.headers["Cache-Control"]
 
     def test_unknown_resource_not_found(self, client):
-        res = client.get("/resource/doesnotx")
+        res = client.get("/api/resource/doesnotx")
         assert res.status_code == 404
         assert res.get_json()["error"] == "Resource not found"
 
@@ -247,8 +248,8 @@ class TestReplace:
         assert body["content_type"] == "text/html"
         assert body["size"] == 11
         assert "updated_at" in body
-        assert body["url"] == f"/resource/{rid}"
-        assert client.get(f"/resource/{rid}").data == b"version two"
+        assert body["url"] == f"/api/resource/{rid}"
+        assert client.get(f"/api/resource/{rid}").data == b"version two"
         assert list_json(client)["count"] == 1
 
     def test_all_format_hints_apply(self, client):
@@ -260,9 +261,9 @@ class TestReplace:
         clock.advance(RESOURCE_TTL - 60)
         replace(client, rid)
         clock.advance(RESOURCE_TTL - 60)
-        assert client.get(f"/resource/{rid}").status_code == 200
+        assert client.get(f"/api/resource/{rid}").status_code == 200
         clock.advance(60)
-        assert client.get(f"/resource/{rid}").status_code == 404
+        assert client.get(f"/api/resource/{rid}").status_code == 404
 
     def test_unknown_resource_rejected(self, client, store):
         res = replace(client, "doesnotx")
@@ -277,7 +278,7 @@ class TestReplace:
 
     def test_missing_file_rejected(self, client):
         rid = upload(client).get_json()["id"]
-        res = client.put(f"/resource/{rid}", data={}, content_type="multipart/form-data")
+        res = client.put(f"/api/resource/{rid}", data={}, content_type="multipart/form-data")
         assert res.status_code == 400
         assert res.get_json()["error"] == "No file provided"
 
@@ -288,7 +289,7 @@ class TestReplace:
     def test_unknown_format_rejected(self, client):
         rid = upload(client, b"original").get_json()["id"]
         assert replace(client, rid, fmt="exe").status_code == 400
-        assert client.get(f"/resource/{rid}").data == b"original"
+        assert client.get(f"/api/resource/{rid}").data == b"original"
 
 
 # --- 4. Browse all resources ------------------------------------------------
@@ -297,7 +298,7 @@ class TestBrowse:
     def test_root_redirects_to_list(self, client):
         res = client.get("/")
         assert res.status_code == 302
-        assert res.headers["Location"].endswith("/resources")
+        assert res.headers["Location"].endswith("/api/resources")
 
     def test_json_lists_live_resources(self, client, clock):
         first = upload(client, b"abc", "a.txt", fmt="text").get_json()["id"]
@@ -314,11 +315,11 @@ class TestBrowse:
         assert item["size"] == 3
         assert item["ttl_seconds"] == RESOURCE_TTL
         assert item["time_remaining_seconds"] == RESOURCE_TTL - 10
-        assert item["url"] == f"/resource/{first}"
+        assert item["url"] == f"/api/resource/{first}"
         assert "created_at" in item and "expires_at" in item
 
     def test_default_accept_gets_json(self, client):
-        res = client.get("/resources", headers={"Accept": "*/*"})
+        res = client.get("/api/resources", headers={"Accept": "*/*"})
         assert res.mimetype == "application/json"
 
     def test_json_empty(self, client):
@@ -328,12 +329,12 @@ class TestBrowse:
 
     def test_html_lists_resources(self, client):
         rid = upload(client, filename="notes.txt", fmt="text").get_json()["id"]
-        res = client.get("/resources", headers={"Accept": "text/html"})
+        res = client.get("/api/resources", headers={"Accept": "text/html"})
         assert res.mimetype == "text/html"
         html = res.get_data(as_text=True)
         assert rid in html
         assert "notes.txt" in html
-        assert f'href="/resource/{rid}"' in html
+        assert f'href="/api/resource/{rid}"' in html
         assert "badge-text" in html
         assert "24h" in html
         assert "10 MB" in html
@@ -341,7 +342,7 @@ class TestBrowse:
     def test_html_empty_state_explains_how_to_add(self, client):
         html = list_html(client)
         assert "No resources available" in html
-        assert "POST /upload" in html
+        assert "POST /api/upload" in html
 
     def test_html_escapes_filenames(self, client):
         upload(client, filename='<img src=x onerror="alert(1)">.txt')
@@ -377,7 +378,7 @@ class TestHealth:
     def test_reports_status_and_count(self, client, clock):
         upload(client)
         upload(client)
-        body = client.get("/health").get_json()
+        body = client.get("/api/health").get_json()
         assert body["status"] == "healthy"
         assert body["resources_count"] == 2
         assert body["uptime_seconds"] >= 0
@@ -385,7 +386,53 @@ class TestHealth:
     def test_count_excludes_expired(self, client, clock):
         upload(client)
         clock.advance(RESOURCE_TTL)
-        assert client.get("/health").get_json()["resources_count"] == 0
+        assert client.get("/api/health").get_json()["resources_count"] == 0
+
+
+# --- API: addresses and legacy aliases --------------------------------------
+
+def multipart(data, filename):
+    return {"data": {"file": (io.BytesIO(data), filename)}, "content_type": "multipart/form-data"}
+
+
+class TestLegacyAliases:
+    """The addresses without /api keep working for links and clients made before it."""
+
+    def test_every_operation_is_under_api(self):
+        rules = {(r.rule, m) for r in create_app().url_map.iter_rules() for m in r.methods}
+        for op in OPERATIONS:
+            assert (API_PREFIX + op.path, op.method) in rules
+            if op.legacy_path:
+                assert (op.legacy_path, op.method) in rules
+
+    def test_old_upload_address(self, client):
+        res = client.post("/upload", **multipart(b"old client", "old.txt"))
+        assert res.status_code == 201
+        body = res.get_json()
+        assert body["url"] == f"/api/resource/{body['id']}"
+        assert client.get(body["url"]).data == b"old client"
+
+    def test_old_shared_link_still_serves(self, client):
+        rid = upload(client, b"shared before /api", fmt="html").get_json()["id"]
+        res = client.get(f"/resource/{rid}")
+        assert res.status_code == 200
+        assert res.data == b"shared before /api"
+        assert res.headers["Content-Security-Policy"].startswith("sandbox")
+
+    def test_old_replace_address(self, client):
+        rid = upload(client).get_json()["id"]
+        assert client.put(f"/resource/{rid}", **multipart(b"v2", "v2.txt")).status_code == 200
+        assert client.get(f"/api/resource/{rid}").data == b"v2"
+
+    def test_old_list_and_health_addresses(self, client):
+        upload(client)
+        assert client.get("/resources", headers={"Accept": "application/json"}).get_json()["count"] == 1
+        assert "No resources available" not in client.get("/resources", headers={"Accept": "text/html"}).get_data(as_text=True)
+        assert client.get("/health").get_json()["status"] == "healthy"
+
+    def test_old_address_errors_match(self, client):
+        assert client.get("/resource/doesnotx").status_code == 404
+        assert client.post("/upload", data={}, content_type="multipart/form-data").status_code == 400
 
 
 # --- Rules: file size -------------------------------------------------------
@@ -420,7 +467,7 @@ class TestFileSizeLimit:
         rid = upload(client, b"original").get_json()["id"]
         res = replace(client, rid, b"x" * (MAX_FILE_SIZE + 1))
         assert res.status_code == 413
-        assert client.get(f"/resource/{rid}").data == b"original"
+        assert client.get(f"/api/resource/{rid}").data == b"original"
 
 
 # --- Rules: lifetime and expiry ---------------------------------------------
@@ -432,13 +479,13 @@ class TestExpiry:
     def test_available_until_24_hours(self, client, clock):
         rid = upload(client).get_json()["id"]
         clock.advance(RESOURCE_TTL - 1)
-        assert client.get(f"/resource/{rid}").status_code == 200
+        assert client.get(f"/api/resource/{rid}").status_code == 200
         assert list_json(client)["count"] == 1
 
     def test_expired_resource_not_viewable(self, client, clock):
         rid = upload(client).get_json()["id"]
         clock.advance(RESOURCE_TTL)
-        assert client.get(f"/resource/{rid}").status_code == 404
+        assert client.get(f"/api/resource/{rid}").status_code == 404
 
     def test_expired_resource_not_listed(self, client, clock):
         upload(client)
@@ -482,17 +529,17 @@ class TestExpiry:
 class TestOpenAccess:
     def test_all_actions_work_without_credentials(self, client):
         rid = upload(client).get_json()["id"]
-        assert client.get(f"/resource/{rid}").status_code == 200
-        assert client.get("/resources").status_code == 200
+        assert client.get(f"/api/resource/{rid}").status_code == 200
+        assert client.get("/api/resources").status_code == 200
         assert replace(client, rid).status_code == 200
-        assert client.get("/health").status_code == 200
+        assert client.get("/api/health").status_code == 200
 
     def test_anyone_can_overwrite_anyone_elses_resource(self, store):
         app = create_app(store)
         alice, bob = app.test_client(), app.test_client()
         rid = upload(alice, b"alice's content").get_json()["id"]
         assert replace(bob, rid, b"bob's content").status_code == 200
-        assert alice.get(f"/resource/{rid}").data == b"bob's content"
+        assert alice.get(f"/api/resource/{rid}").data == b"bob's content"
 
 
 # --- Concurrency ------------------------------------------------------------

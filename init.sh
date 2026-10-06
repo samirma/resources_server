@@ -12,7 +12,7 @@ case "${1:-start}" in
     echo "🚀 Starting Resource Server..."
     docker compose up -d
     echo "✅ Resource Server started on port $PORT"
-    echo "   Health: http://localhost:$PORT/health"
+    echo "   Health: http://localhost:$PORT/api/health"
     ;;
   stop)
     echo "🛑 Stopping Resource Server..."
@@ -46,7 +46,7 @@ case "${1:-start}" in
       python3 -m venv .venv
       .venv/bin/pip install -q -r requirements-dev.txt
     fi
-    .venv/bin/python -m pytest --cov=main --cov-report=term-missing
+    .venv/bin/python -m pytest --cov=main --cov=openapi --cov-report=term-missing
     ;;
   *)
     echo "Usage: $0 {start|stop|down|restart|rebuild|logs|status|test}"

@@ -5,6 +5,9 @@ Simple REST API for temporarily storing and sharing files in RAM.
 
 Behavior is defined by high_level_spec.md. Access is intentionally open:
 there is no authentication and anyone can replace any resource.
+
+Endpoints live under /api and come from openapi.OPERATIONS, which also generates the
+OpenAPI document at /api/openapi.json.
 """
 
 import logging
@@ -17,6 +20,8 @@ from io import BytesIO
 
 from flask import Flask, jsonify, redirect, render_template, request, send_file, url_for
 from werkzeug.exceptions import RequestEntityTooLarge
+
+from openapi import API_PREFIX, OPERATIONS, build_document
 
 logger = logging.getLogger("resource_server")
 
@@ -241,7 +246,6 @@ def create_app(store=None):
         """Redirect root to /resources"""
         return redirect(url_for("list_resources"), code=302)
 
-    @app.route("/upload", methods=["POST"])
     def upload():
         """Upload a resource with optional format hint"""
         fields, failure = read_upload()
@@ -251,7 +255,6 @@ def create_app(store=None):
         logger.info("Uploaded resource: %s (%d bytes)", record["id"], record["size"])
         return jsonify(describe(record)), 201
 
-    @app.route("/resource/<resource_id>", methods=["GET"])
     def get_resource(resource_id):
         """Retrieve a resource by ID"""
         record = store.get(resource_id)
@@ -273,7 +276,6 @@ def create_app(store=None):
         logger.info("Served resource: %s (%d bytes)", record["id"], record["size"])
         return response
 
-    @app.route("/resource/<resource_id>", methods=["PUT"])
     def update_resource(resource_id):
         """Replace an existing resource. Open to anyone by design."""
         fields, failure = read_upload()
@@ -287,7 +289,6 @@ def create_app(store=None):
         body["updated_at"] = body["created_at"]
         return jsonify(body), 200
 
-    @app.route("/resources", methods=["GET"])
     def list_resources():
         """List all live resources as an HTML page for browsers or JSON for tools"""
         now = store.clock()
@@ -330,7 +331,6 @@ def create_app(store=None):
             "max_file_size_bytes": MAX_FILE_SIZE,
         })
 
-    @app.route("/health", methods=["GET"])
     def health():
         """Health check endpoint"""
         return jsonify({
@@ -338,6 +338,29 @@ def create_app(store=None):
             "resources_count": store.count(),
             "uptime_seconds": int(time.time() - started_at),
         })
+
+    def openapi():
+        """The OpenAPI document, generated from OPERATIONS"""
+        return jsonify(build_document(
+            request.url_root.rstrip("/"),
+            max_file_size=MAX_FILE_SIZE,
+            ttl_seconds=int(store.ttl),
+            formats=FORMAT_CONTENT_TYPES,
+        ))
+
+    views = {
+        "upload": upload,
+        "get_resource": get_resource,
+        "update_resource": update_resource,
+        "list_resources": list_resources,
+        "health": health,
+        "openapi": openapi,
+    }
+    for op in OPERATIONS:
+        view = views[op.endpoint]
+        app.add_url_rule(API_PREFIX + op.path, op.endpoint, view, methods=[op.method])
+        if op.legacy_path:
+            app.add_url_rule(op.legacy_path, f"legacy_{op.endpoint}", view, methods=[op.method])
 
     return app
 

@@ -67,13 +67,31 @@ web pages, documents, data files, and text — not for long-term storage.
     the machine running the service;
   - replacing a resource and browsing all resources;
   - managing the service (stop, restart, status, logs) and troubleshooting common problems,
-    such as the service not running or its address already being in use.
+    such as the service not running or its address already being in use;
+  - where to find the full API description (the OpenAPI document, see [API](#api)).
+- The guide uses the `/api/` addresses only.
 - The guide states the same rules as this document: the 10 MB file limit, the 24-hour
   lifetime, temporary storage, and open access where anyone can overwrite any resource.
 - The guide only describes actions the service actually supports. In particular, it must
   not offer deleting a resource.
 - The guide must stay in step with the service: whenever a feature, rule, or limit
   changes, the guide is updated at the same time.
+
+## API
+
+All endpoints are under `/api/` and are described by an OpenAPI document at
+`/api/openapi.json`, generated from the operation definitions in the code. The service and the
+document are built from the same list of operations, so they cannot drift: when an operation,
+a parameter, a response, a rule, or a limit changes, the document reflects it with no
+hand-written change to it or to this specification. Besides the document itself, the API
+offers one operation per feature above: upload, view, replace, list, and status. The document
+states the current rules: the file size limit, the accepted content kinds, the lifetime, and
+open access.
+
+The original addresses without the `/api/` prefix (`/upload`, `/resource/<id>`, `/resources`,
+`/health`) remain as aliases that behave exactly like their `/api/` counterparts, so links
+already shared and existing clients keep working. New clients and the agent skill guide use
+the `/api/` addresses. The service's main address still takes visitors to the resource list.
 
 ## Rules and Limits
 
@@ -108,6 +126,11 @@ web pages, documents, data files, and text — not for long-term storage.
 - The agent skill guide must be checked automatically against this document, so it cannot
   drift: it must state the current limits and lifetime, describe every supported action,
   and offer no unsupported ones.
+- The OpenAPI document must be checked automatically: it is a valid OpenAPI 3.1 document, it
+  describes exactly the service's `/api/` operations, its schemas match the responses the
+  service actually returns, and it states the current limits.
+- Every original address must be tested as an alias: each still works as before, including
+  a link shared before the `/api/` addresses existed.
 - No feature is considered complete until its tests exist and pass.
 
 ## Intended Users

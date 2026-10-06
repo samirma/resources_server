@@ -32,19 +32,29 @@ def test_documents_every_format(fmt):
 
 
 def test_documents_every_supported_action():
-    assert "-X POST" in SKILL and "/upload" in SKILL
-    assert "-X PUT" in SKILL and "/resource/{id}" in SKILL
-    assert "/resources" in SKILL
-    assert "/health" in SKILL
+    assert "-X POST" in SKILL and "/api/upload" in SKILL
+    assert "-X PUT" in SKILL and "/api/resource/{id}" in SKILL
+    assert "/api/resources" in SKILL
+    assert "/api/health" in SKILL
+
+
+def test_points_to_the_openapi_document():
+    assert "/api/openapi.json" in SKILL
+
+
+def test_uses_api_addresses_only():
+    # Old addresses still work as aliases, but the guide teaches the /api ones
+    assert not re.search(r":(?:3100|\$PORT)/(?!api/)\w", SKILL)
 
 
 def test_documented_routes_exist():
     rules = {(rule.rule, method) for rule in create_app().url_map.iter_rules() for method in rule.methods}
-    assert ("/upload", "POST") in rules
-    assert ("/resource/<resource_id>", "PUT") in rules
-    assert ("/resource/<resource_id>", "GET") in rules
-    assert ("/resources", "GET") in rules
-    assert ("/health", "GET") in rules
+    assert ("/api/upload", "POST") in rules
+    assert ("/api/resource/<resource_id>", "PUT") in rules
+    assert ("/api/resource/<resource_id>", "GET") in rules
+    assert ("/api/resources", "GET") in rules
+    assert ("/api/health", "GET") in rules
+    assert ("/api/openapi.json", "GET") in rules
     assert ("/", "GET") in rules
 
 
